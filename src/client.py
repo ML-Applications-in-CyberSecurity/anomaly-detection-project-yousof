@@ -1,7 +1,11 @@
+import os
 import socket
 import json
 import pandas as pd
 import joblib
+from IPython.display import display
+import numpy as np
+from together import Together
 
 HOST = 'localhost'
 PORT = 9999
@@ -9,10 +13,33 @@ PORT = 9999
 model = joblib.load("anomaly_model.joblib")
 
 def pre_process_data(data):
-    # Convert data to DataFrame for model prediction
     df = pd.DataFrame([data])
-    #TODO 2: Here you have to add code to pre-process the data as per your model requirements.
-    return df
+    
+    # Create dummy variables
+    df = pd.get_dummies(df, columns=["protocol"])
+    
+    # Ensure protocol_UDP column exists and convert to boolean
+    if 'protocol_UDP' not in df.columns:
+        df['protocol_UDP'] = False
+    else:
+        df['protocol_UDP'] = df['protocol_UDP'].astype(bool)
+        
+    if 'protocol_TCP' not in df.columns:
+        df['protocol_TCP'] = False
+    else:
+        df['protocol_TCP'] = df['protocol_TCP'].astype(bool)
+        
+    # Drop protocol_TCP if it was the first column in your training data
+    if 'protocol_TCP' in df.columns:
+        df = df.drop('protocol_TCP', axis=1)
+    
+    # Ensure columns are in the same order as training data
+    expected_columns = ['src_port', 'dst_port', 'packet_size', 'duration_ms', 'protocol_UDP']
+    df = df[expected_columns]
+    
+    return np.array(df)
+
+
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((HOST, PORT))
@@ -30,10 +57,69 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
                 data = json.loads(line)
                 print(f'Data Received:\n{data}\n')
+                preprocessed_data = pre_process_data(data)
+                prediction = model.predict(preprocessed_data)
+                if prediction[0] == -1:
+                   print("Anomaly detected in the data.")
+                   os.environ["TOGETHER_API_KEY"] = "f1ca86c9d28a0a0d3ade8cd868b49dae2333556413e4fb2827e3943aa0539cfe" 
+                   client = Together()
+                   response = client.chat.completions.create(
+    model="Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+    messages=[
+        {
+            "role": "system",
+            "content": '''You are a network security analyzer. Analyze network traffic patterns and return ONLY a JSON object containing:
+1. Primary risk category
+2. Specific threat type
+3. Severity level (LOW, MEDIUM, HIGH, CRITICAL)
 
-                #TODO 3: Here you have to add code to process the received data and detect anomalies using a trained model.
+Based on these patterns:
+- WEB_ATTACK:
+  * If src_port is 80/443 with unusual packet sizes
+  * If using non-standard protocols for web ports
+  * Types: SQL_INJECTION, XSS_ATTEMPT, WEB_SHELL, UNUSUAL_WEB_TRAFFIC
 
-                #TODO 4: Here you have to connect to a LLM using together ai with your api code to caption the alert for data and anomalies detected.
+- PORT_ABUSE:
+  * If well-known ports are used unexpectedly
+  * If high port numbers show suspicious patterns
+  * Types: PORT_SCANNING, SERVICE_ABUSE, UNAUTHORIZED_SERVICE
+
+- PROTOCOL_MISUSE:
+  * If protocols are used inappropriately
+  * If UDP is used for typically TCP services
+  * Types: PROTOCOL_TUNNELING, PROTOCOL_SPOOFING, UDP_FLOOD
+
+- DATA_ANOMALY:
+  * If packet sizes are unusual for the protocol
+  * If duration patterns are suspicious
+  * Types: DATA_EXFILTRATION, COVERT_CHANNEL, SUSPICIOUS_TRANSFER
+
+Return JSON in this format ONLY:
+{
+    "risk_category": "CATEGORY",
+    "threat_type": "SPECIFIC_TYPE",
+    "severity": "LEVEL",
+    "timestamp": "YYYY-MM-DD HH:MM:SS"
+}
+
+NO additional text or explanations.'''
+        },
+        {
+            "role": "user", 
+            "content": f"""Analyze this network data:
+            Traffic Data: {data}"""
+        }
+    ])
+
+                risk_analysis = json.loads(response.choices[0].message.content)
+                print(f"""
+                Risk Analysis:
+                Category: {risk_analysis['risk_category']}
+                Threat Type: {risk_analysis['threat_type']}
+                Severity: {risk_analysis['severity']}
+                Detected at: {risk_analysis['timestamp']}
+                """)
+
 
             except json.JSONDecodeError:
                 print("Error decoding JSON.")
