@@ -6,11 +6,39 @@ import joblib
 from IPython.display import display
 import numpy as np
 from together import Together
-
+import csv
+from datetime import datetime, UTC
 HOST = 'localhost'
 PORT = 9999
 
 model = joblib.load("anomaly_model.joblib")
+filename = f'risk_analysis.csv'
+
+def write_risk_analysis_to_csv(risk_analysis):
+    try:
+          # Check if file exists to determine if we need to write headers
+        file_exists = os.path.isfile(filename)
+        
+        # Open file in append mode ('a' instead of 'w')
+        with open(filename, 'a', newline='') as csvfile:
+            fieldnames = ['risk_category', 'threat_type', 'severity', 'timestamp', 'src_port','dst_port','packet_size','duration_ms','protocol']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            
+            # Write header only if file doesn't exist
+            if not file_exists:
+                writer.writeheader()
+            
+            # Append the new data
+            writer.writerow(risk_analysis)
+            return True
+
+    except IOError as e:
+        print(f"File I/O error: {str(e)}")
+        return False
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        return False
+
 
 def pre_process_data(data):
     df = pd.DataFrame([data])
@@ -64,9 +92,9 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                    os.environ["TOGETHER_API_KEY"] = "f1ca86c9d28a0a0d3ade8cd868b49dae2333556413e4fb2827e3943aa0539cfe" 
                    client = Together()
                    response = client.chat.completions.create(
-    model="Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
-    messages=[
-        {
+                 model="Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+                 messages=[
+                 {
             "role": "system",
             "content": '''You are a network security analyzer. Analyze network traffic patterns and return ONLY a JSON object containing:
 1. Primary risk category
@@ -109,17 +137,23 @@ NO additional text or explanations.'''
             "content": f"""Analyze this network data:
             Traffic Data: {data}"""
         }
-    ])
+                ])
 
-                risk_analysis = json.loads(response.choices[0].message.content)
-                print(f"""
+                   risk_analysis = json.loads(response.choices[0].message.content)
+                   print(f"""
                 Risk Analysis:
                 Category: {risk_analysis['risk_category']}
                 Threat Type: {risk_analysis['threat_type']}
                 Severity: {risk_analysis['severity']}
                 Detected at: {risk_analysis['timestamp']}
                 """)
-
-
+                   risk_analysis['src_port'] = data['src_port']
+                   risk_analysis['dst_port'] = data['dst_port']
+                   risk_analysis['packet_size'] = data['packet_size']
+                   risk_analysis['duration_ms'] = data['duration_ms']
+                   risk_analysis['protocol'] = data['protocol']
+                   risk_analysis['timestamp'] = datetime.now(UTC).strftime('%Y-%m-%d%H:%M:%S')
+                # Write to CSV file
+                   write_risk_analysis_to_csv(risk_analysis)
             except json.JSONDecodeError:
                 print("Error decoding JSON.")
