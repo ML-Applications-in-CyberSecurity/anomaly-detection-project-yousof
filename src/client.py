@@ -39,7 +39,6 @@ def write_risk_analysis_to_csv(risk_analysis):
         print(f"An error occurred: {str(e)}")
         return False
 
-
 def pre_process_data(data):
     df = pd.DataFrame([data])
     
@@ -66,8 +65,6 @@ def pre_process_data(data):
     df = df[expected_columns]
     
     return np.array(df)
-
-
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((HOST, PORT))
@@ -152,7 +149,6 @@ NO additional text or explanations.'''
                    risk_analysis['packet_size'] = data['packet_size']
                    risk_analysis['duration_ms'] = data['duration_ms']
                    risk_analysis['protocol'] = data['protocol']
-                   risk_analysis['timestamp'] = datetime.now(UTC).strftime('%Y-%m-%d%H:%M:%S')
                 # Write to CSV file
                    write_risk_analysis_to_csv(risk_analysis)
             except json.JSONDecodeError:
